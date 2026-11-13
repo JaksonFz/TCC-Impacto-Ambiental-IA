@@ -1,185 +1,143 @@
-Documentação do experimento de inferência e impacto ambiental
-1. Visão geral
-Este projeto tem como objetivo avaliar o desempenho computacional e o impacto ambiental estimado de diferentes modelos de inteligência artificial baseados na arquitetura Transformer, utilizando uma tarefa de classificação de sentimentos.
 
-O experimento compara quatro modelos: BERT Tiny, BERT Medium, DistilBERT e BERT Base. Para isso, são observados indicadores como tempo de execução, taxa de processamento, consumo energético estimado, emissões de CO₂ equivalente, utilização de memória e métricas de classificação.
 
-As execuções são realizadas localmente, utilizando exclusivamente a CPU, com o auxílio das bibliotecas PyTorch, Hugging Face Transformers e CodeCarbon.
-2. Bibliotecas e dependências
-O projeto utiliza bibliotecas Python para executar os modelos, manipular os dados e monitorar os recursos computacionais.
-import osimport gcimport timeimport torchimport psutilimport pandas as pdfrom datasets import load_datasetfrom transformers import AutoTokenizer, AutoModelForSequenceClassificationfrom codecarbon import EmissionsTrackerfrom sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+## Estrutura e inicialização do programa
 
+O script foi desenvolvido em Python com a finalidade de executar um experimento comparativo entre quatro modelos Transformer utilizados na classificação de sentimentos. Sua estrutura foi organizada para automatizar o carregamento dos modelos, a preparação dos dados, a execução repetida das inferências, o monitoramento dos recursos computacionais e o armazenamento dos resultados obtidos.
 
+Inicialmente, são importadas as bibliotecas necessárias para a execução dessas operações. A biblioteca `os` é utilizada para manipular diretórios e caminhos de arquivos, permitindo organizar automaticamente os resultados produzidos pelo experimento. A biblioteca `gc` auxilia no gerenciamento da memória, possibilitando solicitar a liberação de objetos que não são mais necessários após a execução de cada modelo. Já a biblioteca `time` fornece a função `perf_counter()`, utilizada posteriormente para medir o tempo de processamento com maior precisão.
 
-As bibliotecas torch e transformers são responsáveis pelo carregamento e processamento dos modelos. A biblioteca datasets permite acessar o conjunto de dados SST-2, enquanto codecarbon realiza as estimativas de consumo energético e emissões.
+O PyTorch, importado pelo módulo `torch`, constitui a base de execução dos modelos, sendo responsável pelo processamento dos tensores e pela realização das operações de inferência. O módulo `psutil` permite acessar informações sobre o processo Python em execução, especialmente o consumo de memória RAM. Para organizar os dados e exportar os resultados, utiliza-se a biblioteca Pandas. As bibliotecas `datasets` e `transformers`, por sua vez, são responsáveis pelo acesso ao conjunto de dados SST-2 e pelo carregamento dos modelos pré-treinados e seus respectivos tokenizadores.
 
-Já psutil permite acompanhar a utilização de memória pelo processo, pandas organiza os resultados e sklearn.metrics fornece as métricas utilizadas na avaliação dos modelos. As bibliotecas os, gc e time auxiliam no gerenciamento de arquivos, liberação de memória e medição do tempo de execução.
-3. Configuração experimental
-Os modelos utilizados são definidos em um dicionário, que associa seus nomes aos respectivos identificadores disponíveis no Hugging Face.
-MODELOS = {    "BERT Tiny": "takedarn/bert-tiny-sst2",    "BERT Medium": "takedarn/bert-medium-sst2",    "DistilBERT": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",    "BERT Base": "yoshitomo-matsubara/bert-base-uncased-sst2"}
+O monitoramento ambiental é realizado por meio da biblioteca CodeCarbon, enquanto as métricas de classificação são calculadas com funções disponibilizadas pelo Scikit-learn.
 
+Após as importações, o código define um dicionário denominado `MODELOS`. Essa estrutura associa um nome simplificado a cada modelo e ao respectivo identificador utilizado na plataforma Hugging Face. Essa abordagem permite percorrer todos os modelos por meio de uma única estrutura de repetição, evitando a necessidade de implementar separadamente o mesmo procedimento para cada arquitetura.
 
+Em seguida, são definidas as constantes que controlam o experimento. A variável `BATCH_SIZE` estabelece que as sentenças serão processadas em grupos de oito amostras, enquanto `MAX_LENGTH` determina o limite de 128 tokens para cada sequência de entrada. A variável `PASSAGENS` define dez percursos completos pelo conjunto de dados em cada repetição, e `REPETICOES` estabelece cinco execuções independentes para cada modelo.
 
-Essa organização facilita a inclusão ou substituição de modelos, permitindo que o mesmo procedimento experimental seja aplicado a todos eles.
+Também é definido o parâmetro `FATOR_CARBONO`, correspondente à intensidade de carbono utilizada pelo CodeCarbon, expressa em gramas de CO₂ equivalente por quilowatt-hora. Os caminhos dos arquivos de saída são construídos com `os.path.join()`, centralizando os resultados no diretório `resultados_experimento_definitivo`.
 
-Os principais parâmetros utilizados durante o experimento são apresentados a seguir:
-BATCH_SIZE = 8MAX_LENGTH = 128PASSAGENS = 10REPETICOES = 5FATOR_CARBONO = 98.348
+Antes do início do processamento, `os.makedirs()` cria esse diretório caso ele ainda não exista. O código também verifica a existência do arquivo de resultados individuais e o remove quando encontrado. Essa operação evita que registros de execuções anteriores sejam incorporados aos resultados da execução atual.
 
+Por fim, são configuradas quatro threads para as operações intraoperação e interoperação do PyTorch. Essa configuração estabelece a quantidade de threads utilizada pelo framework nessas categorias de operações, buscando padronizar as condições computacionais entre os modelos. A função `psutil.Process(os.getpid())` também é utilizada para obter uma referência ao processo Python atual, que será consultada durante o monitoramento da memória.
 
+## Carregamento e preparação do conjunto de dados
 
-O parâmetro BATCH_SIZE estabelece que oito textos serão processados simultaneamente, enquanto MAX_LENGTH limita cada sequência a 128 tokens. O parâmetro PASSAGENS determina que o conjunto de dados será processado dez vezes por repetição, e REPETICOES estabelece cinco execuções independentes para cada modelo.
+Após a inicialização, o programa carrega o conjunto de dados SST-2 por meio da função `load_dataset()`, disponibilizada pela biblioteca Datasets. O código utiliza especificamente a divisão de validação, identificada pelo parâmetro `validation`.
 
-O FATOR_CARBONO representa a intensidade de carbono utilizada pelo CodeCarbon, expressa em gramas de CO₂ equivalente por quilowatt-hora (gCO₂eq/kWh).
-4. Organização dos arquivos de resultados
-O experimento utiliza um diretório específico para armazenar os arquivos gerados durante sua execução.
-PASTA_RESULTADOS = "resultados_experimento_definitivo"ARQUIVO_RESULTADOS = os.path.join(    PASTA_RESULTADOS, "resultados_individuais.csv")ARQUIVO_RESUMO = os.path.join(    PASTA_RESULTADOS, "resumo_modelos.csv")os.makedirs(PASTA_RESULTADOS, exist_ok=True)
+A partir do conjunto carregado, são extraídas duas listas: `textos` e `rotulos_reais`. A primeira contém as sentenças em inglês que serão submetidas aos modelos, enquanto a segunda armazena os rótulos correspondentes às classificações de referência. No SST-2, essas classificações representam sentimentos positivos e negativos.
 
+A separação entre textos e rótulos permite utilizar os mesmos dados de entrada para todos os modelos, garantindo que as comparações sejam realizadas sobre o mesmo conjunto de amostras. Os rótulos reais permanecem armazenados para serem utilizados posteriormente na avaliação das previsões.
 
+## Carregamento dos modelos e tokenização
 
-O diretório é criado automaticamente caso ainda não exista. O arquivo resultados_individuais.csv armazena os dados de cada repetição, enquanto resumo_modelos.csv apresenta os resultados consolidados por modelo.
+A execução principal é organizada por meio de uma estrutura de repetição que percorre os elementos do dicionário `MODELOS`. Em cada iteração, o programa obtém o nome e o identificador do modelo que será avaliado.
 
-Antes do início do experimento, o arquivo de resultados individuais existente é removido, evitando que informações de execuções anteriores sejam incorporadas aos novos resultados.
-5. Preparação do ambiente de execução
-Para padronizar o processamento, são estabelecidos limites de utilização de threads do PyTorch.
-torch.set_num_threads(4)torch.set_num_interop_threads(4)processo = psutil.Process(os.getpid())
+Primeiramente, são exibidas no terminal informações de identificação, permitindo acompanhar qual modelo está sendo processado. Em seguida, a função `AutoTokenizer.from_pretrained()` carrega o tokenizador correspondente ao modelo selecionado. O tokenizador é responsável por converter as sentenças textuais em representações numéricas que possam ser interpretadas pela arquitetura Transformer.
 
+Na sequência, `AutoModelForSequenceClassification.from_pretrained()` carrega o modelo pré-treinado para classificação de sequências. Essa classe permite utilizar diferentes arquiteturas por meio de uma interface comum, desde que sejam compatíveis com a tarefa de classificação.
 
+Após o carregamento, a instrução `modelo.to("cpu")` direciona os parâmetros do modelo para a unidade central de processamento. Essa decisão mantém a execução em ambiente exclusivamente baseado em CPU, sem utilização de GPU. A chamada `modelo.eval()` coloca a rede neural em modo de avaliação, desativando comportamentos específicos do treinamento, como o dropout aplicado durante essa etapa.
 
-As configurações estabelecem quatro threads para operações computacionais e quatro threads para operações paralelas. Em seguida, psutil.Process identifica o processo atual, permitindo acompanhar sua utilização de memória durante o experimento.
+Antes de iniciar as repetições, o código prepara os lotes de dados. Para isso, percorre a lista de sentenças utilizando um intervalo definido por `BATCH_SIZE`. Em cada iteração, o tokenizador recebe um subconjunto de textos e realiza sua conversão por meio de diferentes parâmetros.
 
-O conjunto de dados é carregado utilizando a divisão de validação do SST-2:
-dataset = load_dataset("stanfordnlp/sst2")["validation"]textos = dataset["sentence"]rotulos_reais = dataset["label"]
+O argumento `return_tensors="pt"` determina que as representações resultantes sejam retornadas como tensores compatíveis com o PyTorch. O parâmetro `padding="max_length"` realiza o preenchimento das sequências até o comprimento máximo estabelecido, enquanto `truncation=True` permite remover tokens excedentes. Já `max_length=MAX_LENGTH` limita cada sequência a 128 tokens.
 
+Os lotes resultantes são armazenados na lista `lotes`. Dessa forma, a tokenização é realizada apenas uma vez por modelo, e os mesmos tensores preparados são reutilizados nas cinco repetições. Essa decisão evita incluir repetidamente o custo de tokenização na medição principal das inferências.
 
+## Execução das repetições e aquecimento
 
-São extraídos os textos e seus respectivos rótulos, que posteriormente serão utilizados na classificação e avaliação dos modelos. A divisão de validação utilizada contém 872 amostras.
-6. Carregamento e preparação dos modelos
-O processamento é realizado sequencialmente, percorrendo os modelos definidos anteriormente.
-tokenizer = AutoTokenizer.from_pretrained(identificador)modelo = AutoModelForSequenceClassification.from_pretrained(    identificador)modelo.to("cpu")modelo.eval()
+Com o modelo carregado e os lotes preparados, inicia-se a estrutura de repetição responsável por executar cinco avaliações independentes. A variável `repeticao` identifica cada execução, variando de 1 a 5.
 
+Antes de cada execução monitorada, o código realiza uma passagem completa pelos lotes dentro de um bloco `torch.inference_mode()`. Essa etapa corresponde ao aquecimento (*warm-up*) do modelo. Sua finalidade é permitir que as operações iniciais sejam realizadas antes do início da coleta das métricas principais.
 
+O uso de `torch.inference_mode()` desativa o acompanhamento de gradientes e outras operações relacionadas à diferenciação automática, uma vez que o experimento não envolve treinamento ou atualização dos parâmetros da rede neural. Isso reduz o trabalho adicional do framework durante a inferência.
 
-O tokenizador e o modelo são carregados a partir dos identificadores do Hugging Face. A instrução modelo.to("cpu") direciona a execução para o processador, enquanto modelo.eval() configura o modelo para o modo de avaliação, desativando comportamentos específicos do treinamento, como o dropout.
+Após o aquecimento, a lista `predicoes` é inicializada para armazenar as classificações produzidas pelo modelo. O consumo inicial de memória do processo também é registrado por meio de `processo.memory_info().rss`. O atributo RSS (*Resident Set Size*) representa a quantidade de memória física residente associada ao processo Python naquele instante. O valor é convertido de bytes para megabytes por meio da divisão por `1024 ** 2`.
 
-Após o carregamento, os textos são divididos em lotes e convertidos em tensores:
-for inicio in range(0, len(textos), BATCH_SIZE):    entradas = tokenizer(        textos[inicio:inicio + BATCH_SIZE],        return_tensors="pt",        padding="max_length",        truncation=True,        max_length=MAX_LENGTH    )    lotes.append(entradas)
+O nome do arquivo de monitoramento ambiental é construído dinamicamente com base no modelo e no número da repetição. Essa identificação permite associar cada arquivo de emissões à execução correspondente, evitando a sobreposição dos registros.
 
+## Monitoramento ambiental e medição do tempo
 
+Para monitorar o consumo energético estimado, o código instancia a classe `EmissionsTracker`, disponibilizada pelo CodeCarbon. Cada instância recebe um nome de projeto que identifica o modelo e sua respectiva repetição, além das configurações de monitoramento.
 
-A tokenização transforma os textos em representações numéricas que podem ser processadas pelo modelo. O preenchimento padroniza o comprimento das sequências, enquanto o truncamento limita textos que ultrapassam o tamanho máximo estabelecido.
+O parâmetro `measure_power_secs=1` estabelece o intervalo de amostragem utilizado pelo monitoramento de potência. A configuração `tracking_mode="process"` determina que o acompanhamento seja direcionado ao processo em execução. O parâmetro `pue=1.0` define o valor de eficiência de uso de energia da infraestrutura, enquanto `wue=0` desativa a contabilização de água nessa configuração.
 
-Os lotes são armazenados na lista lotes para serem reutilizados nas repetições seguintes.
-7. Aquecimento e execução experimental
-Antes de iniciar cada repetição, é realizada uma execução preliminar dos lotes:
-with torch.inference_mode():    for lote in lotes:        modelo(**lote)
+A opção `force_carbon_intensity_g_co2e_kwh=FATOR_CARBONO` estabelece uma intensidade de carbono fixa para o cálculo das emissões. Com isso, evita-se que diferentes execuções utilizem fatores de intensidade de carbono distintos durante a comparação.
 
+Também são definidos o diretório de saída e o nome do arquivo CSV que receberá os dados do monitoramento. O parâmetro `api_call_interval=-1` desativa as consultas periódicas à API de intensidade de carbono, sendo utilizado em conjunto com o fator fixo informado.
 
+Após a configuração, `tracker.start()` inicia o monitoramento ambiental. Imediatamente depois, `time.perf_counter()` registra o instante inicial da medição de tempo.
 
-Essa etapa, conhecida como warm-up, permite executar previamente as operações do modelo, reduzindo possíveis interferências associadas à inicialização do processamento.
+A execução das inferências ocorre dentro de um segundo bloco `torch.inference_mode()`. Nesse momento, uma estrutura de repetição percorre dez vezes a lista completa de lotes. Em cada passagem, o modelo recebe um lote por meio da chamada `modelo(**lote)`, que encaminha os tensores de entrada aos argumentos esperados pela arquitetura.
 
-Após o aquecimento, inicia-se a configuração do monitoramento ambiental.
-7.1. Monitoramento ambiental
-O CodeCarbon é utilizado para estimar o consumo energético e as emissões de CO₂ equivalente durante o processamento.
-tracker = EmissionsTracker(    project_name=f"TCC_{nome.replace(' ', '_')}_R{repeticao}",    measure_power_secs=1,    tracking_mode="process",    pue=1.0,    wue=0,    api_call_interval=-1,    force_carbon_intensity_g_co2e_kwh=FATOR_CARBONO,    output_dir=PASTA_RESULTADOS,    output_file=nome_arquivo)tracker.start()
+O resultado retornado contém, entre outras informações, os valores de saída da rede neural, armazenados no atributo `logits`. Esses valores representam as pontuações produzidas pelo modelo para cada classe.
 
+Durante a primeira passagem, o código utiliza `torch.argmax(saida.logits, dim=1)` para identificar a classe com maior pontuação em cada amostra. A operação `argmax` retorna o índice da maior pontuação ao longo da dimensão das classes, produzindo assim a classificação prevista pelo modelo.
 
+As previsões são transferidas para a memória principal por meio de `.cpu()` e convertidas em uma lista Python com `.tolist()`. O uso da condição `if passagem == 0` garante que as previsões sejam armazenadas apenas na primeira passagem, evitando duplicações na avaliação da classificação.
 
-Cada repetição recebe uma identificação própria, permitindo diferenciar os arquivos de monitoramento gerados pelos modelos.
+Nas dez passagens, o código também consulta continuamente o consumo de memória do processo. O valor atual de RSS é comparado com o maior valor registrado anteriormente por meio da função `max()`. Dessa maneira, `memoria_pico` mantém o maior consumo de memória observado durante a execução monitorada, incluindo o valor inicial registrado antes do início das inferências.
 
-O parâmetro measure_power_secs estabelece o intervalo de medição de potência, enquanto tracking_mode="process" configura o monitoramento do processo. A intensidade de carbono é fixada conforme o valor definido anteriormente.
+Quando todas as passagens são concluídas, `time.perf_counter()` é chamado novamente. A diferença entre o instante final e o inicial representa o tempo total de processamento das inferências. Em seguida, `tracker.stop()` encerra o monitoramento do CodeCarbon e retorna a estimativa de emissões de CO₂ equivalente da execução.
 
-Os parâmetros PUE e WUE são mantidos em 1,0 e 0, respectivamente, não representando medições reais de infraestrutura de data centers.
-7.2. Processamento das inferências
-Com o monitoramento iniciado, o código executa dez passagens completas pelo conjunto de dados.
-with torch.inference_mode():    for passagem in range(PASSAGENS):        for lote in lotes:            saida = modelo(**lote)            if passagem == 0:                predicoes.extend(                    torch.argmax(                        saida.logits,                        dim=1                    ).cpu().tolist()                )
+## Recuperação dos dados energéticos
 
+Após o encerramento do monitoramento, o código inicializa a variável `energia_kwh` com um valor inválido (`NaN`). Essa inicialização permite identificar situações em que não seja possível recuperar a informação energética.
 
+Primeiramente, o programa tenta acessar diretamente o atributo `energy_consumed`, presente em `tracker.final_emissions_data`. Caso essa operação seja bem-sucedida, o valor é convertido para o tipo numérico `float`.
 
-A função torch.inference_mode() reduz operações desnecessárias relacionadas ao acompanhamento de gradientes, tornando o processamento mais adequado para inferências.
+Se ocorrer alguma exceção durante essa tentativa, o código utiliza uma alternativa: abre o arquivo CSV produzido pelo CodeCarbon por meio do Pandas e procura a coluna `energy_consumed`. O último registro dessa coluna é então utilizado como valor de consumo energético.
 
-As classificações são armazenadas somente durante a primeira passagem. Nas demais, os lotes continuam sendo processados para compor o tempo e o consumo energético monitorados, sem duplicar as previsões utilizadas na avaliação.
+Essa estrutura de tratamento de exceções oferece uma alternativa para recuperar a informação caso o acesso direto ao objeto do monitoramento não esteja disponível. Caso ambas as tentativas falhem, o valor permanece como `NaN`, indicando que o consumo energético não pôde ser recuperado.
 
-Ao término do processamento, o tempo total é calculado e o monitoramento do CodeCarbon é encerrado.
-8. Monitoramento da memória
-Durante as inferências, o consumo de memória é acompanhado por meio do psutil.
-memoria_atual = (    processo.memory_info().rss / (1024 ** 2))memoria_pico = max(    memoria_pico,    memoria_atual)
+## Cálculo das métricas de desempenho e classificação
 
+Com o encerramento das inferências, o programa calcula a quantidade total de operações realizadas durante a repetição. Essa quantidade é obtida multiplicando o número de sentenças do conjunto de dados pelo número de passagens:
 
+`total_inferencias = len(textos) * PASSAGENS`
 
-A propriedade rss representa a memória residente do processo, ou seja, a quantidade de memória física ocupada por ele.
+Como são utilizadas dez passagens completas, cada amostra é submetida ao modelo dez vezes. A taxa de processamento é calculada dividindo esse total pelo tempo medido:
 
-A conversão para megabytes é realizada dividindo o valor por \(1024^2\). A função max() mantém registrado o maior consumo observado durante a execução.
-9. Avaliação dos modelos
-Após o processamento, as classificações previstas são comparadas com os rótulos reais do conjunto de dados.
-acuracia = accuracy_score(    rotulos_reais,    predicoes)precisao = precision_score(    rotulos_reais,    predicoes,    zero_division=0)recall = recall_score(    rotulos_reais,    predicoes,    zero_division=0)f1 = f1_score(    rotulos_reais,    predicoes,    zero_division=0)
+`taxa_processamento = total_inferencias / tempo`
 
+O resultado representa a quantidade de inferências realizadas por segundo durante o intervalo monitorado.
 
+Na sequência, são calculadas as métricas de classificação. A função `accuracy_score()` compara as previsões armazenadas com os rótulos reais e determina a proporção de classificações corretas. A função `precision_score()` calcula a precisão, enquanto `recall_score()` determina a revocação. Por fim, `f1_score()` calcula a média harmônica entre precisão e revocação.
 
-São utilizadas quatro métricas para avaliar a qualidade das classificações: acurácia, precisão, recall e F1-score.
+Nas quatro funções é utilizado o argumento `zero_division=0`, que define o valor retornado quando ocorre uma situação de divisão por zero durante o cálculo de uma métrica.
 
-O parâmetro zero_division=0 estabelece que o resultado será zero caso ocorra uma situação em que a métrica não possa ser calculada devido à ausência de previsões positivas.
+É importante observar que as métricas de classificação são calculadas sobre as previsões da primeira passagem, correspondentes às amostras únicas do conjunto de validação. Já o tempo e a taxa de processamento consideram as dez passagens completas. Essa separação permite avaliar a qualidade das classificações sem contabilizar repetidamente as mesmas amostras.
 
-A taxa de processamento também é calculada considerando o total de inferências realizadas e o tempo registrado:
-total_inferencias = len(textos) * PASSAGENStaxa_processamento = (    total_inferencias / tempo)
+## Organização e persistência dos resultados
 
+Após os cálculos, o código reúne todas as informações da repetição em um dicionário denominado `resultado`. Esse objeto concentra a identificação do modelo, os parâmetros utilizados, as métricas computacionais, as estimativas ambientais e os indicadores de classificação.
 
+O dicionário é acrescentado à lista `resultados`, que mantém em memória os registros produzidos durante a execução dos modelos.
 
-Dessa maneira, é possível comparar a velocidade de processamento dos modelos independentemente de suas diferenças de arquitetura.
-10. Registro e consolidação dos resultados
-Os indicadores obtidos são organizados em um dicionário:
-resultado = {    "modelo": nome,    "identificador": identificador,    "repeticao": repeticao,    "amostras_unicas": len(textos),    "passagens": PASSAGENS,    "inferencias": total_inferencias,    "batch_size": BATCH_SIZE,    "max_length": MAX_LENGTH,    "tempo_segundos": tempo,    "inferencias_por_segundo": taxa_processamento,    "energia_kwh": energia_kwh,    "emissoes_kg_co2eq": emissoes,    "memoria_pico_mb": memoria_pico,    "acuracia": acuracia,    "precisao": precisao,    "recall": recall,    "f1": f1}
+Em seguida, o Pandas transforma o dicionário em um DataFrame e o exporta para o arquivo `resultados_individuais.csv`. A gravação utiliza o modo de anexação (`mode="a"`), permitindo acrescentar novas linhas ao arquivo sem apagar os registros anteriores. O parâmetro `header` verifica a existência do arquivo para determinar se os nomes das colunas devem ser escritos novamente. Assim, o cabeçalho é inserido somente na primeira gravação.
 
+Depois da persistência dos resultados individuais, o código cria outro DataFrame a partir da lista acumulada `resultados`. São selecionadas as colunas que representam as métricas de interesse, excluindo os campos de identificação e configuração que não participam do resumo estatístico.
 
+O agrupamento é realizado por meio de `groupby("modelo")`, reunindo as repetições correspondentes a cada modelo. Sobre cada grupo, a função `agg(["mean", "std"])` calcula a média e o desvio-padrão das métricas selecionadas.
 
-Cada execução é registrada no arquivo CSV individual, permitindo preservar os resultados sem sobrescrever as repetições anteriores.
-pd.DataFrame([resultado]).to_csv(    ARQUIVO_RESULTADOS,    mode="a",    header=not os.path.exists(ARQUIVO_RESULTADOS),    index=False)
+Como o agrupamento produz colunas com múltiplos níveis, o código utiliza uma compreensão de listas para combinar o nome de cada métrica com a estatística correspondente. Por exemplo, as colunas resultantes recebem identificações como `tempo_segundos_mean` e `tempo_segundos_std`.
 
+Por fim, o resumo é exportado para `resumo_modelos.csv`. Esse arquivo permite consultar a média e a dispersão dos resultados obtidos nas cinco repetições de cada modelo, servindo como base para as análises comparativas e a elaboração de tabelas e gráficos.
 
+## Finalização e liberação de recursos
 
-O parâmetro mode="a" permite adicionar novos registros ao arquivo, enquanto header controla a inclusão do cabeçalho somente quando necessário.
-10.1. Resumo estatístico
-Ao final de cada repetição, os resultados disponíveis são agrupados por modelo e submetidos ao cálculo de média e desvio padrão.
-resumo = df_atual.groupby("modelo")[colunas_metricas].agg(    ["mean", "std"])
+Após concluir as cinco repetições de um modelo, o código utiliza `del` para remover as referências ao modelo, ao tokenizador e à lista de lotes. Em seguida, `gc.collect()` solicita a execução do coletor de lixo do Python, buscando liberar objetos que não possuem mais referências e recuperar memória antes do carregamento do próximo modelo.
 
+Esse procedimento é importante porque os modelos Transformer podem ocupar quantidades consideráveis de memória, especialmente quando diferentes arquiteturas são executadas sequencialmente no mesmo processo.
 
+Quando todos os modelos são processados, o programa exibe a mensagem de conclusão e informa os caminhos dos arquivos CSV gerados. Dessa forma, o experimento termina com os registros individuais de cada repetição e o resumo estatístico consolidado por modelo.
 
-A média representa o comportamento médio observado nas repetições, enquanto o desvio padrão permite avaliar a variação dos resultados entre as execuções.
+## Limitações e interpretação dos dados
 
-O resumo é exportado para resumo_modelos.csv, permitindo realizar comparações entre os modelos com base nos indicadores coletados.
-11. Liberação de recursos e encerramento
-Após concluir as cinco repetições de um modelo, os objetos utilizados são removidos:
-del modelo, tokenizer, lotesgc.collect()
+Os resultados produzidos pelo script devem ser interpretados considerando as características do método de coleta. O CodeCarbon fornece estimativas de consumo energético e emissões com base no monitoramento do processo e nas informações de hardware e intensidade de carbono disponíveis. Portanto, esses valores não representam medições físicas diretas realizadas por um medidor externo.
 
+Da mesma forma, o consumo de memória registrado corresponde ao RSS do processo Python, incluindo estruturas de dados, bibliotecas e demais componentes residentes na memória, não sendo uma medição isolada do espaço ocupado pelos parâmetros do modelo.
 
+A medição principal contempla o processamento das dez passagens de inferência, mas não inclui o tempo de carregamento dos modelos, a tokenização e a preparação dos lotes. O aquecimento também é realizado antes do início da medição. Consequentemente, os resultados representam o custo computacional da etapa de inferência nas condições estabelecidas, e não o custo total de inicialização e utilização do sistema.
 
-A remoção dos objetos e a execução do coletor de lixo auxiliam no gerenciamento da memória durante o processamento sequencial dos modelos.
-
-Ao finalizar todos os modelos, o programa informa a conclusão do experimento e apresenta os caminhos dos arquivos contendo os resultados individuais e consolidados.
-
-12. Estrutura dos arquivos gerados
-Ao final da execução, o diretório de resultados apresenta uma organização semelhante à seguinte:
-resultados_experimento_definitivo/
-│
-├── resultados_individuais.csv
-├── resumo_modelos.csv
-│
-├── emissions_bert_tiny_rep_1.csv
-├── emissions_bert_tiny_rep_2.csv
-├── emissions_bert_tiny_rep_3.csv
-├── emissions_bert_tiny_rep_4.csv
-├── emissions_bert_tiny_rep_5.csv
-│
-├── emissions_bert_medium_rep_1.csv
-├── emissions_distilbert_rep_1.csv
-└── ...
-
-
-Os arquivos de emissões são gerados individualmente pelo CodeCarbon, enquanto os outros dois arquivos são produzidos pelo próprio código experimental.
-13. Considerações sobre os resultados
-O experimento permite analisar a relação entre o desempenho dos modelos e os recursos computacionais necessários para sua execução.
-
-A combinação dos indicadores de tempo, taxa de processamento, memória, energia e emissões estimadas possibilita identificar diferenças de eficiência entre as arquiteturas avaliadas.
-
-As métricas de classificação complementam essa análise, permitindo verificar se as diferenças de desempenho computacional estão associadas a diferenças na qualidade das previsões.
-
-Os resultados devem ser interpretados considerando as condições específicas do ambiente experimental, especialmente a utilização exclusiva de CPU, o conjunto de dados empregado e os parâmetros estabelecidos para o monitoramento ambiental.
+Por fim, a configuração `wue=0` desativa a contabilização de água pelo CodeCarbon nessa execução. Assim, os resultados desse script não devem ser interpretados como uma medição direta ou uma estimativa completa do consumo hídrico associado aos modelos.
